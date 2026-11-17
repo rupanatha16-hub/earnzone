@@ -10,7 +10,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -76,6 +75,8 @@ data class Cat(
     val keywords: List<String> = emptyList()
 )
 
+data class Tool(val id: Int, val name: String, val desc: String, val icon: ImageVector)
+
 private val categories = listOf(
     Cat("राष्ट्रीय समाचार", Icons.Filled.Flag, Color(0xFF5B21B6)),
     Cat("अंतरराष्ट्रीय", Icons.Filled.Public, Color(0xFF0284C7)),
@@ -91,16 +92,33 @@ private val categories = listOf(
     Cat("ऑटोमोबाइल", Icons.Filled.DirectionsCar, Color(0xFF475569))
 )
 
-private val sources = listOf(Source("PIB", NEWS_URL, true))
+private val allTools = listOf(
+    Tool(1, "कैलकुलेटर", "जोड़, घटाव, गुणा, भाग", Icons.Filled.Calculate),
+    Tool(2, "EMI कैलकुलेटर", "लोन की किस्त निकालें", Icons.Filled.AccountBalance),
+    Tool(3, "यूनिट कन्वर्टर", "लंबाई, वज़न, तापमान", Icons.Filled.Build),
+    Tool(4, "उम्र कैलकुलेटर", "जन्मतिथि से उम्र निकालें", Icons.Filled.Person),
+    Tool(5, "QR जनरेटर", "टेक्स्ट से QR बनाएँ", Icons.Filled.Info)
+)
+
 private data class Source(val name: String, val url: String, val isNational: Boolean)
 
+private val sources = listOf(Source("PIB", NEWS_URL, true))
+
 private fun cleanField(s: String): String = s.replace(SEP, " ").replace("\n", " ").replace("\r", " ")
-private fun encode(list: List<NewsItem>): String = list.joinToString("\n") { cleanField(it.title) + SEP + it.link + SEP + cleanField(it.source) + SEP + it.pubDate }
+
+private fun encode(list: List<NewsItem>): String = list.joinToString("\n") {
+    cleanField(it.title) + SEP + it.link + SEP + cleanField(it.source) + SEP + it.pubDate
+}
+
 private fun decode(text: String): List<NewsItem> = text.lines().mapNotNull { line ->
     val p = line.split(SEP)
     if (p.size < 2 || p[0].isEmpty() || !p[1].startsWith("https://")) null
     else if (p.size == 2) NewsItem(p[0], p[1])
-    else NewsItem(p[0], p[1], p[2].ifBlank { "अज्ञात स्रोत" }, if (p.size >= 4) (p[3].toLongOrNull() ?: 0L) else 0L)
+    else NewsItem(
+        p[0], p[1],
+        p[2].ifBlank { "अज्ञात स्रोत" },
+        if (p.size >= 4) (p[3].toLongOrNull() ?: 0L) else 0L
+    )
 }
 
 private fun parseDate(raw: String): Long {
@@ -112,12 +130,14 @@ private fun parseDate(raw: String): Long {
             val sdf = SimpleDateFormat(f, Locale.ENGLISH).apply { isLenient = false }
             val t = sdf.parse(s)?.time ?: continue
             return if (t > 0L) t else 0L
-        } catch (e: ParseException) { }
+        } catch (e: ParseException) {
+        }
     }
     return 0L
 }
 
-private fun formatDate(millis: Long): String = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(millis))
+private fun formatDate(millis: Long): String =
+    SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(millis))
 
 private fun fetchSource(src: Source): List<NewsItem> {
     val conn = URL(src.url).openConnection() as HttpURLConnection
@@ -127,7 +147,7 @@ private fun fetchSource(src: Source): List<NewsItem> {
         conn.requestMethod = "GET"
         conn.setRequestProperty("User-Agent", "EarnZone-Android")
         if (conn.responseCode != 200) throw IOException("HTTP " + conn.responseCode)
-        val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trimStart('﻿')
+        val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trimStart('\uFEFF')
         val parser = Xml.newPullParser().apply { setInput(StringReader(text)) }
         val out = ArrayList<NewsItem>()
         var inItem = false
@@ -138,14 +158,17 @@ private fun fetchSource(src: Source): List<NewsItem> {
         while (event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
                 val name = parser.name
-                if (name == "item" || name == "entry") { inItem = true; title = ""; link = ""; date = "" }
-                else if (inItem && name == "title") { title = parser.nextText().trim().replace(Regex("\\s+"), " ") }
-                else if (inItem && name == "link") {
+                if (name == "item" || name == "entry") {
+                    inItem = true; title = ""; link = ""; date = ""
+                } else if (inItem && name == "title") {
+                    title = parser.nextText().trim().replace(Regex("\\s+"), " ")
+                } else if (inItem && name == "link") {
                     val href = parser.getAttributeValue(null, "href")
                     val t = parser.nextText().trim()
                     link = href?.trim() ?: if (t.isNotEmpty()) t else ""
+                } else if (inItem && (name == "pubDate" || name == "published" || name == "updated")) {
+                    date = parser.nextText().trim()
                 }
-                else if (inItem && (name == "pubDate" || name == "published" || name == "updated")) { date = parser.nextText().trim() }
             } else if (event == XmlPullParser.END_TAG && (parser.name == "item" || parser.name == "entry")) {
                 if (title.isNotEmpty() && link.startsWith("https://")) {
                     out.add(NewsItem(title, link, src.name, parseDate(date)))
@@ -156,7 +179,9 @@ private fun fetchSource(src: Source): List<NewsItem> {
             event = parser.next()
         }
         return out
-    } finally { conn.disconnect() }
+    } finally {
+        conn.disconnect()
+    }
 }
 
 private fun mergeItems(lists: List<List<NewsItem>>): List<NewsItem> {
@@ -171,12 +196,17 @@ private fun mergeItems(lists: List<List<NewsItem>>): List<NewsItem> {
 }
 
 private fun openLink(context: Context, url: String) {
-    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (e: Exception) { }
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    } catch (e: Exception) {
+    }
 }
 
 private fun appVersion(context: Context): String = try {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
-} catch (e: Exception) { "1.0" }
+} catch (e: Exception) {
+    "1.0"
+}
 
 class AppState(private val prefs: SharedPreferences) {
     var items by mutableStateOf(decode(prefs.getString("news_cache", "") ?: ""))
@@ -423,6 +453,164 @@ fun NoNewsState() {
 }
 
 @Composable
+fun ToolRow(tool: Tool, isFavorite: Boolean, onToggleFavorite: () -> Unit, onOpen: () -> Unit) {
+    WhiteCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpen() }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Soft),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(tool.icon, null, tint = Purple)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(tool.name, fontWeight = FontWeight.Bold, color = Ink, fontSize = 16.sp)
+                Text(tool.desc, color = Muted, fontSize = 13.sp)
+            }
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    if (isFavorite) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                    contentDescription = "फेवरेट",
+                    tint = if (isFavorite) Gold else Purple
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeDashboardScreen(
+    prefs: SharedPreferences,
+    newsState: AppState,
+    onRefreshNews: () -> Unit,
+    recentToolIds: List<Int>,
+    onOpenTool: (Int) -> Unit,
+    onNavigateTab: (Int, String) -> Unit
+) {
+    Header("EarnZone", "आज की ताज़ा खबरें और टूल्स")
+    Body {
+        val recent = recentToolIds.mapNotNull { id -> allTools.find { it.id == id } }
+        if (recent.isNotEmpty()) {
+            SectionTitle("हाल के टूल्स")
+            recent.forEach { t ->
+                ToolRow(t, false, onToggleFavorite = {}, onOpen = { onOpenTool(t.id) })
+            }
+        }
+        SectionTitle("ताज़ा खबरें")
+        FeedStatus(newsState, onRefreshNews)
+        if (newsState.error.isNotEmpty()) {
+            Text(newsState.error, color = Color(0xFFDC2626), fontSize = 13.sp)
+        }
+        if (newsState.items.isEmpty()) NoNewsState() else NewsList(newsState.items, newsState)
+    }
+}
+
+@Composable
+fun StudyAndGamesScreen(prefs: SharedPreferences, initialMode: String) {
+    Header("स्टडी", "पढ़ाई और गेम्स")
+    Body {
+        EmptyState(Icons.Filled.School, "जल्द आ रहा है", "स्टडी और गेम्स सेक्शन जल्द उपलब्ध होगा।")
+    }
+}
+
+@Composable
+fun PopularToolsDirectoryScreen(
+    favoriteToolIds: Set<Int>,
+    onToggleFavorite: (Int) -> Unit,
+    onOpenTool: (Int) -> Unit
+) {
+    Header("पॉपुलर टूल्स", "काम के टूल्स एक जगह")
+    Body {
+        allTools.forEach { t ->
+            ToolRow(
+                t,
+                favoriteToolIds.contains(t.id),
+                onToggleFavorite = { onToggleFavorite(t.id) },
+                onOpen = { onOpenTool(t.id) }
+            )
+        }
+    }
+}
+
+@Composable
+fun FavoritesScreen(
+    favoriteToolIds: Set<Int>,
+    newsState: AppState,
+    onToggleFavorite: (Int) -> Unit,
+    onOpenTool: (Int) -> Unit
+) {
+    Header("फेवरेट्स", "आपके सेव किए हुए")
+    Body {
+        val favTools = allTools.filter { favoriteToolIds.contains(it.id) }
+        SectionTitle("टूल्स")
+        if (favTools.isEmpty()) {
+            EmptyState(Icons.Filled.Bookmark, "कोई फेवरेट टूल नहीं", "किसी टूल पर बुकमार्क दबाइए।")
+        } else {
+            favTools.forEach { t ->
+                ToolRow(t, true, onToggleFavorite = { onToggleFavorite(t.id) }, onOpen = { onOpenTool(t.id) })
+            }
+        }
+        SectionTitle("सेव की हुई खबरें")
+        if (newsState.saved.isEmpty()) {
+            EmptyState(Icons.Filled.BookmarkBorder, "कोई सेव खबर नहीं", "खबर पर बुकमार्क दबाकर सेव करें।")
+        } else {
+            NewsList(newsState.saved, newsState)
+        }
+    }
+}
+
+@Composable
+fun ProfileScreen() {
+    val context = LocalContext.current
+    Header("प्रोफ़ाइल", "EarnZone")
+    Body {
+        WhiteCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("EarnZone", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Ink)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("वर्ज़न " + appVersion(context), color = Muted, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun ToolDetailScreen(
+    toolId: Int,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onBack: () -> Unit
+) {
+    val tool = allTools.find { it.id == toolId }
+    Header(tool?.name ?: "टूल", tool?.desc ?: "") {
+        IconButton(onClick = onToggleFavorite) {
+            Icon(
+                if (isFavorite) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                contentDescription = "फेवरेट",
+                tint = Gold
+            )
+        }
+    }
+    Body {
+        TextButton(onClick = onBack) {
+            Icon(Icons.Filled.ArrowBack, null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("वापस जाएँ")
+        }
+        EmptyState(tool?.icon ?: Icons.Filled.Info, tool?.name ?: "टूल", "यह टूल जल्द उपलब्ध होगा।")
+    }
+}
+
+@Composable
 fun EarnZoneApp(prefs: SharedPreferences) {
     val state = remember { AppState(prefs) }
     val scope = rememberCoroutineScope()
@@ -522,367 +710,17 @@ fun EarnZoneApp(prefs: SharedPreferences) {
                     2 -> PopularToolsDirectoryScreen(
                         favoriteToolIds = favoriteToolIds,
                         onToggleFavorite = { toggleFavTool(it) },
-                        onOpenTool = { openTool(it) },
-                        onNavigateStudy = { mode ->
-                            studyInitialMode = mode
-                            tab = 1
-                        }
+                        onOpenTool = { openTool(it) }
                     )
-                    3 -> FavoritesAndNotesScreen(
-                        prefs = prefs,
+                    3 -> FavoritesScreen(
                         favoriteToolIds = favoriteToolIds,
-                        onToggleFavoriteTool = { toggleFavTool(it) },
-                        onOpenTool = { openTool(it) },
-                        newsState = state
+                        newsState = state,
+                        onToggleFavorite = { toggleFavTool(it) },
+                        onOpenTool = { openTool(it) }
                     )
                     else -> ProfileScreen()
                 }
             }
         }
-    }
-}
-
-@Composable
-fun HomeDashboardScreen(
-    prefs: SharedPreferences,
-    newsState: AppState,
-    onRefreshNews: () -> Unit,
-    recentToolIds: List<Int>,
-    onOpenTool: (Int) -> Unit,
-    onNavigateTab: (Int, String) -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    var showLegacyNews by remember { mutableStateOf(false) }
-
-    Column {
-        Header("EarnZone", "All-in-One Smart Tools & Learning") {
-            IconButton(onClick = { showLegacyNews = !showLegacyNews }) {
-                Icon(
-                    if (showLegacyNews) Icons.Filled.Close else Icons.Filled.Notifications,
-                    contentDescription = "News Updates",
-                    tint = Color.White
-                )
-            }
-        }
-        Body {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Tools, Quizzes, Brain Games या Notes खोजें...") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Purple) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Filled.Close, contentDescription = "साफ़ करें")
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp)
-            )
-
-            val q = searchQuery.trim()
-            if (q.isNotEmpty()) {
-                val matchedTools = smartToolsList.filter {
-                    it.title.contains(q, ignoreCase = true) || it.subtitle.contains(q, ignoreCase = true)
-                }
-                val matchedSubjects = studySubjects.filter { it.first.contains(q, ignoreCase = true) }
-                val gamesList = listOf("Math Puzzle", "Memory Game", "Number Guessing Game", "Word Puzzle")
-                val matchedGames = gamesList.filter { it.contains(q, ignoreCase = true) }
-                val matchedNotes = loadNotes(prefs).filter {
-                    it.title.contains(q, ignoreCase = true) || it.content.contains(q, ignoreCase = true)
-                }
-
-                if (matchedTools.isEmpty() && matchedSubjects.isEmpty() && matchedGames.isEmpty() && matchedNotes.isEmpty()) {
-                    EmptyState(Icons.Filled.Search, "कोई परिणाम नहीं मिला", "\"$q\" से संबंधित कोई टूल या क्विज़ नहीं मिला।")
-                } else {
-                    if (matchedTools.isNotEmpty()) {
-                        SectionTitle("Smart Tools (${matchedTools.size})")
-                        matchedTools.forEach { t -> SettingRow(t.icon, t.title, t.subtitle) { onOpenTool(t.id) } }
-                    }
-                    if (matchedSubjects.isNotEmpty()) {
-                        SectionTitle("Study Quizzes (${matchedSubjects.size})")
-                        matchedSubjects.forEach { (subj, icon) -> SettingRow(icon, "$subj Quiz", "ऑफलाइन अभ्यास प्रश्न") { onNavigateTab(1, "MENU") } }
-                    }
-                    if (matchedGames.isNotEmpty()) {
-                        SectionTitle("Brain Games (${matchedGames.size})")
-                        matchedGames.forEach { g -> SettingRow(Icons.Filled.Extension, g, "दिमागी खेल खेलें") { onNavigateTab(1, "GAMES") } }
-                    }
-                    if (matchedNotes.isNotEmpty()) {
-                        SectionTitle("Saved Notes (${matchedNotes.size})")
-                        matchedNotes.forEach { n -> SettingRow(Icons.Filled.Edit, n.title, n.content.take(40)) { onNavigateTab(3, "MENU") } }
-                    }
-                }
-            } else if (showLegacyNews) {
-                SectionTitle("सरकारी समाचार अपडेट्स")
-                FeedStatus(newsState, onRefreshNews)
-                if (newsState.items.isEmpty()) {
-                    if (!newsState.loading) NoNewsState()
-                } else {
-                    NewsList(newsState.items.take(10), newsState)
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Brush.linearGradient(listOf(Purple2, Purple)))
-                        .padding(20.dp)
-                ) {
-                    Column {
-                        Text("स्वागत है! EarnZone Smart Hub", color = Gold, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "9 स्मार्ट कैलकुलेटर, ऑफलाइन क्विज़, डेली चैलेंज और ब्रेन गेम्स एक ही ऐप में",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            lineHeight = 25.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = { onNavigateTab(2, "MENU") },
-                                colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Purple)
-                            ) {
-                                Text("सभी Tools देखें", fontWeight = FontWeight.Bold)
-                            }
-                            OutlinedButton(
-                                onClick = { onNavigateTab(1, "DAILY") },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                            ) {
-                                Text("Daily Challenge")
-                            }
-                        }
-                    }
-                }
-
-                if (recentToolIds.isNotEmpty()) {
-                    SectionTitle("हाल ही में उपयोग किए गए")
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        recentToolIds.mapNotNull { id -> smartToolsList.firstOrNull { it.id == id } }.forEach { tool ->
-                            PillChip(tool.title, true) { onOpenTool(tool.id) }
-                        }
-                    }
-                }
-
-                SectionTitle("Quick Smart Tools")
-                smartToolsList.take(4).chunked(2).forEach { pair ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        pair.forEach { tool ->
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(CardWhite)
-                                    .clickable { onOpenTool(tool.id) }
-                                    .padding(14.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(tool.accent.copy(alpha = 0.14f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(tool.icon, null, tint = tool.accent)
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(tool.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink)
-                                Text(tool.subtitle, fontSize = 11.sp, color = Muted, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-
-                SectionTitle("Study Zone & Brain Games")
-                SettingRow(Icons.Filled.Star, "Daily Challenge", "आज का प्रश्न हल करें और स्कोर बढ़ाएं") {
-                    onNavigateTab(1, "DAILY")
-                }
-                SettingRow(Icons.Filled.School, "Offline Quizzes (8 विषय)", "GK, Math, Science, History, Computer, Hindi & English") {
-                    onNavigateTab(1, "MENU")
-                }
-                SettingRow(Icons.Filled.Extension, "Brain Games (4 गेम्स)", "Math Puzzle, Memory, Number Guess & Word Puzzle") {
-                    onNavigateTab(1, "GAMES")
-                }
-                SettingRow(Icons.Filled.Edit, "Personal Notes & Favorites", "अपने महत्वपूर्ण नोट्स और पसंदीदा टूल्स देखें") {
-                    onNavigateTab(3, "MENU")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PopularToolsDirectoryScreen(
-    favoriteToolIds: Set<Int>,
-    onToggleFavorite: (Int) -> Unit,
-    onOpenTool: (Int) -> Unit,
-    onNavigateStudy: (String) -> Unit
-) {
-    var search by remember { mutableStateOf("") }
-    var selectedCat by remember { mutableStateOf("All") }
-    val filterCats = listOf("All", "Calculators", "Converters", "Text Tools", "Study Tools", "Brain Games")
-
-    Column {
-        Header("Tools Directory", "सभी स्मार्ट टूल्स और लर्निंग यूटिलिटीज़") {
-            Icon(Icons.Filled.Build, null, modifier = Modifier.size(26.dp), tint = Gold)
-        }
-        Body {
-            OutlinedTextField(
-                value = search,
-                onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("टूल का नाम खोजें...") },
-                leadingIcon = { Icon(Icons.Filled.Search, null, tint = Purple) },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp)
-            )
-
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                filterCats.forEach { cat ->
-                    PillChip(cat, selectedCat == cat) { selectedCat = cat }
-                }
-            }
-
-            val filteredTools = smartToolsList.filter { tool ->
-                val matchesCat = selectedCat == "All" || tool.category == selectedCat
-                val matchesSearch = search.isBlank() || tool.title.contains(search, ignoreCase = true) || tool.subtitle.contains(search, ignoreCase = true)
-                matchesCat && matchesSearch
-            }
-
-            if (filteredTools.isNotEmpty()) {
-                SectionTitle("Smart Tools (${filteredTools.size})")
-                filteredTools.forEach { tool ->
-                    WhiteCard {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenTool(tool.id) }
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(tool.accent.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(tool.icon, null, tint = tool.accent)
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(tool.title, fontWeight = FontWeight.Bold, color = Ink)
-                                Text(tool.subtitle, fontSize = 12.sp, color = Muted)
-                            }
-                            IconButton(onClick = { onToggleFavorite(tool.id) }) {
-                                Icon(
-                                    if (favoriteToolIds.contains(tool.id)) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                    contentDescription = "Favorite",
-                                    tint = if (favoriteToolIds.contains(tool.id)) Gold else Muted
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (selectedCat == "All" || selectedCat == "Study Tools") {
-                SectionTitle("Study Tools")
-                SettingRow(Icons.Filled.School, "Subject Quizzes", "8 विषयों के अभ्यास प्रश्न") { onNavigateStudy("MENU") }
-                SettingRow(Icons.Filled.Star, "Daily Challenge", "प्रतिदिन एक नया प्रश्न") { onNavigateStudy("DAILY") }
-            }
-
-            if (selectedCat == "All" || selectedCat == "Brain Games") {
-                SectionTitle("Brain Games")
-                SettingRow(Icons.Filled.Extension, "Play Brain Games", "4 ऑफलाइन दिमागी खेल") { onNavigateStudy("GAMES") }
-            }
-        }
-    }
-}
-
-@Composable
-fun SettingRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(CardWhite)
-            .clickable { onClick() }
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Soft),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, null, tint = Purple)
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, color = Ink)
-            Text(subtitle, fontSize = 12.sp, color = Muted)
-        }
-        Icon(Icons.Filled.ChevronRight, null, tint = Muted)
-    }
-}
-
-@Composable
-fun ProfileScreen() {
-    val context = LocalContext.current
-    var dlg by remember { mutableStateOf<Pair<String, String>?>(null) }
-    val version = appVersion(context)
-
-    Column {
-        Header("EarnZone", if (version.isEmpty()) "All-in-One App" else "वर्ज़न $version")
-        Body {
-            SettingRow(Icons.Filled.Language, "भाषा (Language)", "हिंदी / English") {
-                dlg = Pair("भाषा सेटिंग", "EarnZone में टूल्स और क्विज़ हिंदी और अंग्रेजी दोनों भाषाओं के अनुकूल तैयार किए गए हैं।")
-            }
-            SettingRow(Icons.Filled.Info, "EarnZone के बारे में", "All-in-One Smart Tools & Learning App") {
-                dlg = Pair("EarnZone के बारे में", "EarnZone एक संपूर्ण स्मार्ट टूल्स और ऑफलाइन लर्निंग ऐप है जिसमें 9 दैनिक कैलकुलेटर/कन्वर्टर, 8 विषयों के क्विज़, डेली चैलेंज, 4 ब्रेन गेम्स और व्यक्तिगत नोट्स की सुविधा है।")
-            }
-            SettingRow(Icons.Filled.Lock, "गोपनीयता नीति", "Privacy Policy") {
-                dlg = Pair("गोपनीयता नीति", "आपके सभी नोट्स, पसंदीदा टूल्स और क्विज़ स्कोर आपके फ़ोन में ही सुरक्षित रहते हैं। विज्ञापन Google AdMob द्वारा दिखाए जाते हैं।")
-            }
-            SettingRow(Icons.Filled.Description, "नियम और शर्तें", "Terms & Conditions") {
-                dlg = Pair("नियम और शर्तें", "यह ऐप शैक्षणिक और दैनिक गणना सहायता के लिए बनाया गया है। इसमें कोई सट्टेबाजी या पेड एंट्री शामिल नहीं है।")
-            }
-            SettingRow(Icons.Filled.Share, "ऐप शेयर करें (Share App)", "दोस्तों को भेजें") {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, "EarnZone – All-in-One Smart Tools & Learning App आज़माएं!")
-                }
-                context.startActivity(Intent.createChooser(send, "EarnZone शेयर करें"))
-            }
-            SettingRow(Icons.Filled.Star, "ऐप रेट करें (Rate App)", "अपनी प्रतिक्रिया दें") {
-                dlg = Pair("Rate EarnZone", "Play Store पर जल्द उपलब्ध होगा।")
-            }
-            SettingRow(Icons.Filled.Info, "ऐप वर्ज़न", version.ifEmpty { "1.0" }) { }
-        }
-    }
-
-    val d = dlg
-    if (d != null) {
-        AlertDialog(
-            onDismissRequest = { dlg = null },
-            title = { Text(d.first) },
-            text = { Text(d.second) },
-            confirmButton = { TextButton(onClick = { dlg = null }) { Text("ठीक है") } }
-        )
     }
 }
