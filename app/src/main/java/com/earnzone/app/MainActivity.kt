@@ -3,39 +3,32 @@ package com.earnzone.app
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import android.util.Xml
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -50,60 +43,53 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
 
-private val Purple = Color(0xFF5428D8)
-private val LightPurple = Color(0xFF7C4DFF)
+private val Purple = Color(0xFF5B21B6)
+private val Purple2 = Color(0xFF7C3AED)
+private val Gold = Color(0xFFFFC928)
 private val Bg = Color(0xFFF7F5FF)
+private val Ink = Color(0xFF17152B)
 private val CardWhite = Color(0xFFFFFFFF)
-private val Gold = Color(0xFFF5B82E)
-private val Green = Color(0xFF16A34A)
-private val Red = Color(0xFFDC2626)
+private val Muted = Color(0xFF6B6B7B)
+private val Soft = Color(0xFFEDE7FF)
 
 private const val NEWS_URL = "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=2&Regid=3"
-
-private fun todayNumber(): Int {
-    val now = System.currentTimeMillis()
-    return ((now + TimeZone.getDefault().getOffset(now)) / 86400000L).toInt()
-}
-
-data class RewardItem(val id: String, val name: String, val cost: Int)
-
-private val rewardItems = listOf(
-    RewardItem("purple_theme", "Purple Theme", 500),
-    RewardItem("silver_badge", "Silver Badge", 1000),
-    RewardItem("golden_avatar", "Golden Avatar", 2000),
-    RewardItem("profile_frame", "Special Profile Frame", 3000),
-    RewardItem("exclusive_theme", "Exclusive Theme", 5000)
-)
-
-private val tips = listOf(
-    "Open EarnZone every day to build your streak.",
-    "Use two fingers in Tap Rush for a higher score.",
-    "Finish all daily tasks to level up faster.",
-    "Rewards you buy are yours forever.",
-    "Spin the wheel once every day.",
-    "Keep a 7 day streak to earn a special badge."
-)
+private const val SEP = "\u001F"
 
 data class NewsItem(val title: String, val link: String)
 
-class NewsState {
-    var items by mutableStateOf<List<NewsItem>>(emptyList())
-    var loading by mutableStateOf(false)
-    var error by mutableStateOf("")
-    var updated by mutableStateOf("")
-    var loaded by mutableStateOf(false)
-}
+data class Cat(val name: String, val icon: ImageVector, val color: Color)
+
+private val categories = listOf(
+    Cat("राष्ट्रीय समाचार", Icons.Filled.Flag, Color(0xFF5B21B6)),
+    Cat("अंतरराष्ट्रीय", Icons.Filled.Public, Color(0xFF0284C7)),
+    Cat("टेक्नोलॉजी", Icons.Filled.Computer, Color(0xFF7C3AED)),
+    Cat("सरकारी नौकरी", Icons.Filled.Work, Color(0xFFEA580C)),
+    Cat("सरकारी योजनाएँ", Icons.Filled.AccountBalance, Color(0xFF16A34A)),
+    Cat("शिक्षा", Icons.Filled.School, Color(0xFFDB2777)),
+    Cat("खेल", Icons.Filled.SportsSoccer, Color(0xFF059669)),
+    Cat("मनोरंजन", Icons.Filled.Movie, Color(0xFFD946EF)),
+    Cat("व्यापार", Icons.Filled.TrendingUp, Color(0xFFCA8A04)),
+    Cat("विज्ञान", Icons.Filled.Science, Color(0xFF0D9488)),
+    Cat("स्वास्थ्य", Icons.Filled.HealthAndSafety, Color(0xFFDC2626)),
+    Cat("ऑटोमोबाइल", Icons.Filled.DirectionsCar, Color(0xFF475569))
+)
+
+private val trendFilters = listOf("सभी", "राष्ट्रीय समाचार", "खेल", "टेक्नोलॉजी", "शिक्षा")
+
+private fun encode(list: List<NewsItem>): String =
+    list.joinToString("\n") { it.title + SEP + it.link }
+
+private fun decode(text: String): List<NewsItem> =
+    text.lines().mapNotNull { line ->
+        val p = line.split(SEP)
+        if (p.size == 2 && p[1].startsWith("https://")) NewsItem(p[0], p[1]) else null
+    }
 
 private fun fetchNews(): List<NewsItem> {
     val conn = URL(NEWS_URL).openConnection() as HttpURLConnection
@@ -130,7 +116,7 @@ private fun fetchNews(): List<NewsItem> {
                     title = ""
                     link = ""
                 } else if (inItem && name == "title") {
-                    title = parser.nextText().trim()
+                    title = parser.nextText().trim().replace(Regex("\\s+"), " ")
                 } else if (inItem && name == "link") {
                     link = parser.nextText().trim()
                 }
@@ -153,130 +139,58 @@ private fun openLink(context: Context, url: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     } catch (e: Exception) {
-        // no browser found, do nothing
+        // browser not found
     }
 }
 
-class Store(private val prefs: SharedPreferences) {
-    var points by mutableStateOf(prefs.getInt("points", 0))
+class AppState(private val prefs: SharedPreferences) {
+    var items by mutableStateOf(decode(prefs.getString("news_cache", "") ?: ""))
         private set
-    var totalEarned by mutableStateOf(prefs.getInt("total_earned", 0))
+    var saved by mutableStateOf(decode(prefs.getString("saved_news", "") ?: ""))
         private set
-    var history by mutableStateOf(prefs.getString("history", "") ?: "")
+    var updated by mutableStateOf(prefs.getString("news_time", "") ?: "")
         private set
-    var owned by mutableStateOf(prefs.getString("owned", "") ?: "")
+    var loading by mutableStateOf(false)
         private set
-    var streak by mutableStateOf(prefs.getInt("streak", 0))
+    var error by mutableStateOf("")
         private set
-    var bestStreak by mutableStateOf(prefs.getInt("best_streak", 0))
-        private set
-    var streakClaimDay by mutableStateOf(prefs.getInt("streak_claim", -1))
-        private set
-    var spinCount by mutableStateOf(prefs.getInt("spin_count", 0))
-        private set
-    var bestTaps by mutableStateOf(prefs.getInt("best_taps", 0))
-        private set
-    var tick by mutableStateOf(0)
-        private set
-    val userId: String
 
-    init {
-        val saved = prefs.getString("user_id", null)
-        if (saved == null) {
-            val n = "EZ" + Random.nextInt(100000, 999999)
-            prefs.edit().putString("user_id", n).apply()
-            userId = n
+    fun isSaved(link: String): Boolean = saved.any { it.link == link }
+
+    fun toggleSave(item: NewsItem) {
+        saved = if (isSaved(item.link)) {
+            saved.filter { it.link != item.link }
         } else {
-            userId = saved
+            listOf(item) + saved
         }
-        val today = todayNumber()
-        val last = prefs.getInt("last_open", -1)
-        if (today > last) {
-            streak = if (last == today - 1) streak + 1 else 1
-            if (streak > bestStreak) bestStreak = streak
-            prefs.edit()
-                .putInt("last_open", today)
-                .putInt("streak", streak)
-                .putInt("best_streak", bestStreak)
-                .apply()
-        }
-        if (streak < 1) streak = 1
+        prefs.edit().putString("saved_news", encode(saved)).apply()
     }
 
-    val level: Int
-        get() = minOf(20, 1 + totalEarned / 150)
-
-    val levelName: String
-        get() = if (level <= 5) "Bronze" else if (level <= 10) "Silver" else "Gold"
-
-    fun badges(): List<Pair<String, Boolean>> = listOf(
-        "New Member" to true,
-        "Spin Master" to (spinCount >= 7),
-        "7 Days Streak" to (bestStreak >= 7),
-        "Game Champion" to (bestTaps >= 80),
-        "Quiz Master" to false,
-        "Gold Member" to (level >= 11)
-    )
-
-    fun currentBadge(): String = badges().filter { it.second }.last().first
-
-    private fun addHistory(reason: String, n: Int) {
-        val counter = prefs.getInt("tx_counter", 0) + 1
-        val id = "TX" + counter.toString().padStart(5, '0')
-        val time = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date())
-        val line = "$id|$time|$reason|$n"
-        val lines = (listOf(line) + history.lines().filter { it.isNotEmpty() }).take(50)
-        history = lines.joinToString("\n")
-        prefs.edit().putInt("tx_counter", counter).putString("history", history).apply()
-    }
-
-    fun earn(n: Int, reason: String) {
-        if (n <= 0) return
-        points += n
-        totalEarned += n
-        prefs.edit().putInt("points", points).putInt("total_earned", totalEarned).apply()
-        addHistory(reason, n)
-        tick += 1
-    }
-
-    fun isOwned(id: String): Boolean = owned.split(",").contains(id)
-
-    fun buy(item: RewardItem): String {
-        if (isOwned(item.id)) return "Already owned."
-        if (points < item.cost) return "Not enough points."
-        points -= item.cost
-        owned = if (owned.isEmpty()) item.id else owned + "," + item.id
-        prefs.edit().putInt("points", points).putString("owned", owned).apply()
-        addHistory("Bought " + item.name, -item.cost)
-        tick += 1
-        return "You got " + item.name + "!"
-    }
-
-    fun streakReward(): Int {
-        val day = ((streak - 1) % 7) + 1
-        return if (day == 7) 30 else day * 5
-    }
-
-    fun claimStreak(): Int {
-        val today = todayNumber()
-        if (streakClaimDay == today) return 0
-        val day = ((streak - 1) % 7) + 1
-        val reward = streakReward()
-        streakClaimDay = today
-        prefs.edit().putInt("streak_claim", today).apply()
-        earn(reward, "Streak Day $day")
-        return reward
-    }
-
-    fun recordSpin() {
-        spinCount += 1
-        prefs.edit().putInt("spin_count", spinCount).apply()
-    }
-
-    fun recordTaps(t: Int) {
-        if (t > bestTaps) {
-            bestTaps = t
-            prefs.edit().putInt("best_taps", t).apply()
+    suspend fun refresh() {
+        if (loading) return
+        loading = true
+        error = ""
+        try {
+            val list = withContext(Dispatchers.IO) { fetchNews() }
+            if (list.isEmpty()) {
+                error = "अभी कोई खबर नहीं मिली। थोड़ी देर बाद फिर कोशिश करें।"
+            } else {
+                val time = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
+                items = list
+                updated = time
+                prefs.edit()
+                    .putString("news_cache", encode(list))
+                    .putString("news_time", time)
+                    .apply()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            error = "इंटरनेट नहीं है या सर्वर से जुड़ नहीं पाए। कनेक्शन जाँचकर फिर कोशिश करें।"
+        } catch (e: Exception) {
+            error = "खबरें इस समय नहीं मिल पाईं। थोड़ी देर बाद फिर कोशिश करें।"
+        } finally {
+            loading = false
         }
     }
 }
@@ -288,7 +202,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("earnzone", Context.MODE_PRIVATE)
         setContent {
             MaterialTheme(
-                colorScheme = lightColorScheme(primary = Purple, background = Bg)
+                colorScheme = lightColorScheme(primary = Purple, secondary = Purple2, background = Bg)
             ) {
                 EarnZoneApp(prefs)
             }
@@ -311,746 +225,633 @@ fun BannerAd() {
 }
 
 @Composable
-fun WhiteCard(content: @Composable () -> Unit) {
+fun WhiteCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CardWhite),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        content = content
+    )
+}
+
+@Composable
+fun Header(title: String, subtitle: String = "", actions: @Composable RowScope.() -> Unit = {}) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+            .background(Brush.verticalGradient(listOf(Purple, Purple2)))
     ) {
-        content()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Gold),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("E", color = Purple, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                if (subtitle.isNotEmpty()) {
+                    Text(subtitle, color = Color(0xFFE9DDFF), fontSize = 13.sp)
+                }
+            }
+            actions()
+        }
     }
 }
 
 @Composable
-fun Title(text: String) {
-    Text(text, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Purple)
+fun Body(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        content = content
+    )
+}
+
+@Composable
+fun SectionTitle(text: String) {
+    Text(text, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
+}
+
+@Composable
+fun PillChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Purple else Soft)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text,
+            color = if (selected) Color.White else Purple,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+fun EmptyState(icon: ImageVector, title: String, text: String) {
+    WhiteCard {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Soft),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, modifier = Modifier.size(32.dp), tint = Purple)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Ink)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text, fontSize = 13.sp, color = Muted, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+fun NewsCard(item: NewsItem, state: AppState) {
+    val context = LocalContext.current
+    val isSaved = state.isSaved(item.link)
+    WhiteCard {
+        Column(modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Soft)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text("स्रोत: PIB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Purple)
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { state.toggleSave(item) }) {
+                    Icon(
+                        if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                        contentDescription = "सेव",
+                        tint = if (isSaved) Gold else Purple
+                    )
+                }
+            }
+            Text(
+                item.title,
+                fontSize = 16.sp,
+                lineHeight = 24.sp,
+                color = Ink,
+                modifier = Modifier.padding(end = 8.dp)
+            )
+            TextButton(onClick = { openLink(context, item.link) }) {
+                Text("मूल लेख खोलें", color = Purple, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun NewsList(list: List<NewsItem>, state: AppState) {
+    list.forEach { NewsCard(it, state) }
+}
+
+@Composable
+fun FeaturedCard(item: NewsItem, state: AppState) {
+    val context = LocalContext.current
+    val isSaved = state.isSaved(item.link)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Brush.linearGradient(listOf(Purple2, Purple)))
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Gold)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text("ताज़ा खबर", color = Purple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Text("स्रोत: PIB", color = Color(0xFFE9DDFF), fontSize = 12.sp)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                item.title,
+                color = Color.White,
+                fontSize = 20.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = { openLink(context, item.link) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Purple)
+                ) {
+                    Text("मूल लेख खोलें", fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { state.toggleSave(item) }) {
+                    Icon(
+                        if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                        contentDescription = "सेव",
+                        tint = if (isSaved) Gold else Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FeedStatus(state: AppState, onRefresh: () -> Unit) {
+    if (state.error.isNotEmpty()) {
+        WhiteCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("⚠️ " + state.error, color = Color(0xFFDC2626), fontWeight = FontWeight.Bold)
+                if (state.items.isNotEmpty()) {
+                    Text(
+                        "नीचे फ़ोन में सेव की हुई पिछली खबरें दिख रही हैं।",
+                        fontSize = 12.sp,
+                        color = Muted
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(enabled = !state.loading, onClick = onRefresh) {
+                    Text("फिर कोशिश करें (Retry)")
+                }
+            }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            if (state.updated.isEmpty()) "अभी ताज़ा नहीं हुआ"
+            else "आख़िरी बार ताज़ा किया: ${state.updated}",
+            fontSize = 12.sp,
+            color = Muted,
+            modifier = Modifier.weight(1f)
+        )
+        if (state.loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = Purple
+            )
+        } else {
+            TextButton(onClick = onRefresh) {
+                Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("ताज़ा करें")
+            }
+        }
+    }
+}
+
+@Composable
+fun NoNewsState() {
+    EmptyState(
+        Icons.Filled.Info,
+        "अभी कोई खबर नहीं",
+        "इंटरनेट चालू करके \"ताज़ा करें\" दबाइए।"
+    )
+}
+
+@Composable
+fun NoSourceState(icon: ImageVector) {
+    EmptyState(
+        icon,
+        "अभी कोई स्रोत नहीं जुड़ा",
+        "इस श्रेणी के लिए अभी कोई भरोसेमंद खबर-स्रोत नहीं जुड़ा है। हम नकली खबरें नहीं दिखाते।"
+    )
 }
 
 @Composable
 fun EarnZoneApp(prefs: SharedPreferences) {
-    var resetKey by remember { mutableStateOf(0) }
-    val store = remember(resetKey) { Store(prefs) }
-    val news = remember { NewsState() }
+    val state = remember { AppState(prefs) }
+    val scope = rememberCoroutineScope()
+    val refresh: () -> Unit = { scope.launch { state.refresh() } }
     var tab by remember { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) { state.refresh() }
+
+    val tabs = listOf(
+        "Home" to Icons.Filled.Home,
+        "Categories" to Icons.Filled.Category,
+        "Trending" to Icons.Filled.Whatshot,
+        "Saved" to Icons.Filled.Bookmark,
+        "Profile" to Icons.Filled.Person
+    )
 
     Scaffold(
         containerColor = Bg,
         bottomBar = {
             Column {
                 BannerAd()
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = tab == 0,
-                        onClick = { tab = 0 },
-                        icon = { Icon(Icons.Filled.Home, contentDescription = "Home") },
-                        label = { Text("Home") }
-                    )
-                    NavigationBarItem(
-                        selected = tab == 5,
-                        onClick = { tab = 5 },
-                        icon = { Icon(Icons.Filled.Info, contentDescription = "News") },
-                        label = { Text("News") }
-                    )
-                    NavigationBarItem(
-                        selected = tab == 1,
-                        onClick = { tab = 1 },
-                        icon = { Icon(Icons.Filled.Star, contentDescription = "Tasks") },
-                        label = { Text("Tasks") }
-                    )
-                    NavigationBarItem(
-                        selected = tab == 2,
-                        onClick = { tab = 2 },
-                        icon = { Icon(Icons.Filled.PlayArrow, contentDescription = "Games") },
-                        label = { Text("Games") }
-                    )
-                    NavigationBarItem(
-                        selected = tab == 3,
-                        onClick = { tab = 3 },
-                        icon = { Icon(Icons.Filled.ShoppingCart, contentDescription = "Rewards") },
-                        label = { Text("Rewards") }
-                    )
-                    NavigationBarItem(
-                        selected = tab == 4,
-                        onClick = { tab = 4 },
-                        icon = { Icon(Icons.Filled.Person, contentDescription = "Profile") },
-                        label = { Text("Profile") }
-                    )
+                NavigationBar(containerColor = Color.White) {
+                    tabs.forEachIndexed { i, (label, icon) ->
+                        NavigationBarItem(
+                            selected = tab == i,
+                            onClick = { tab = i },
+                            icon = { Icon(icon, label) },
+                            label = { Text(label, fontSize = 11.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color.White,
+                                selectedTextColor = Purple,
+                                indicatorColor = Purple,
+                                unselectedIconColor = Muted,
+                                unselectedTextColor = Muted
+                            )
+                        )
+                    }
                 }
             }
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            key(resetKey) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    when (tab) {
-                        0 -> HomeScreen(prefs, store) { tab = it }
-                        1 -> TasksScreen(prefs, store)
-                        2 -> GameScreen(prefs, store)
-                        3 -> RewardsScreen(store)
-                        5 -> NewsScreen(news)
-                        else -> ProfileScreen(store) {
-                            prefs.edit().clear().apply()
-                            resetKey += 1
+            when (tab) {
+                0 -> HomeScreen(state, refresh) { tab = it }
+                1 -> CategoriesScreen(state, refresh)
+                2 -> TrendingScreen(state, refresh)
+                3 -> SavedScreen(state)
+                else -> ProfileScreen()
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreen(state: AppState, onRefresh: () -> Unit, onGo: (Int) -> Unit) {
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var showBell by remember { mutableStateOf(false) }
+
+    Column {
+        Header("EarnZone", "सरकारी खबरें, एक जगह") {
+            IconButton(onClick = {
+                searching = !searching
+                if (!searching) query = ""
+            }) {
+                Icon(
+                    if (searching) Icons.Filled.Close else Icons.Filled.Search,
+                    contentDescription = "खोजें",
+                    tint = Color.White
+                )
+            }
+            IconButton(onClick = { showBell = true }) {
+                Icon(Icons.Filled.Notifications, contentDescription = "सूचनाएँ", tint = Color.White)
+            }
+        }
+        Body {
+            if (searching) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("खबरों के शीर्षक में खोजें") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "मिटाएँ")
+                            }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun NewsScreen(news: NewsState) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    fun load() {
-        if (news.loading) return
-        scope.launch {
-            news.loading = true
-            news.error = ""
-            try {
-                val list = withContext(Dispatchers.IO) { fetchNews() }
-                if (list.isEmpty()) {
-                    news.error = "अभी कोई खबर नहीं मिली। थोड़ी देर बाद फिर कोशिश करें।"
-                } else {
-                    news.items = list
-                    news.updated = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
-                    news.loaded = true
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: IOException) {
-                news.error = "इंटरनेट नहीं है या सर्वर से जुड़ नहीं पाए। कनेक्शन जाँचकर फिर कोशिश करें।"
-            } catch (e: Exception) {
-                news.error = "खबरें इस समय नहीं मिल पाईं। थोड़ी देर बाद फिर कोशिश करें।"
-            } finally {
-                news.loading = false
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        if (!news.loaded) load()
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Brush.horizontalGradient(listOf(Purple, LightPurple)))
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text("समाचार", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("PIB से ताज़ा सरकारी खबरें", color = Color.White)
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                if (news.updated.isEmpty()) "अभी ताज़ा नहीं हुआ"
-                else "आख़िरी बार ताज़ा किया: ${news.updated}",
-                color = Gold,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                enabled = !news.loading,
-                onClick = { load() },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Gold,
-                    contentColor = Color(0xFF2B1A6B)
                 )
-            ) {
-                Text(if (news.loading) "ताज़ा हो रहा है..." else "ताज़ा करें")
-            }
-        }
-    }
-
-    if (news.loading && news.items.isEmpty()) {
-        WhiteCard {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(28.dp), color = Purple)
-                Spacer(modifier = Modifier.width(14.dp))
-                Text("खबरें आ रही हैं...")
-            }
-        }
-    }
-
-    if (news.error.isNotEmpty()) {
-        WhiteCard {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("⚠️ " + news.error, color = Red, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(enabled = !news.loading, onClick = { load() }) {
-                    Text("फिर कोशिश करें (Retry)")
-                }
-            }
-        }
-    }
-
-    news.items.forEachIndexed { i, item ->
-        WhiteCard {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(Color(0xFFEDE7FF))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            "स्रोत: PIB",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Purple
+                val q = query.trim()
+                if (q.isEmpty()) {
+                    Text("ऊपर खोज शब्द लिखिए।", color = Muted, fontSize = 13.sp)
+                } else {
+                    val res = state.items.filter { it.title.contains(q, ignoreCase = true) }
+                    if (res.isEmpty()) {
+                        EmptyState(
+                            Icons.Filled.Search,
+                            "कोई नतीजा नहीं",
+                            "\"$q\" से मेल खाती कोई खबर नहीं मिली।"
                         )
+                    } else {
+                        Text("${res.size} नतीजे मिले", color = Muted, fontSize = 13.sp)
+                        NewsList(res, state)
                     }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text("#${i + 1}", color = Gold, fontWeight = FontWeight.Bold)
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(item.title, fontSize = 16.sp, lineHeight = 24.sp)
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(onClick = { openLink(context, item.link) }) {
-                    Text("मूल लेख खोलें")
+            } else {
+                FeedStatus(state, onRefresh)
+                if (state.items.isEmpty()) {
+                    if (!state.loading) NoNewsState()
+                } else {
+                    FeaturedCard(state.items[0], state)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        categories.forEach { c ->
+                            PillChip(c.name, false) { onGo(1) }
+                        }
+                    }
+                    SectionTitle("टॉप हेडलाइन्स")
+                    NewsList(state.items.drop(1).take(5), state)
+                    if (state.items.size > 6) {
+                        SectionTitle("ताज़ा समाचार")
+                        NewsList(state.items.drop(6), state)
+                    }
                 }
             }
         }
     }
 
-    Text(
-        "EarnZone भारत सरकार का ऐप नहीं है। खबरें पत्र सूचना कार्यालय (PIB) की RSS फ़ीड से, बिना बदले दिखाई गई हैं। पूरा लेख PIB की वेबसाइट पर खुलेगा।",
-        fontSize = 12.sp,
-        color = Color(0xFF6B6B7B)
-    )
+    if (showBell) {
+        AlertDialog(
+            onDismissRequest = { showBell = false },
+            title = { Text("सूचनाएँ") },
+            text = { Text("रोज़ की सूचनाएँ अभी उपलब्ध नहीं हैं। बाद के अपडेट में जोड़ी जाएँगी।") },
+            confirmButton = {
+                TextButton(onClick = { showBell = false }) { Text("ठीक है") }
+            }
+        )
+    }
 }
 
 @Composable
-fun HomeScreen(prefs: SharedPreferences, store: Store, onGo: (Int) -> Unit) {
-    val today = todayNumber()
-    var tasksDone = 0
-    for (i in 0..2) {
-        if (prefs.getInt("task_$i", -1) == today) tasksDone += 1
-    }
-    var actions = tasksDone
-    if (prefs.getInt("spin_day", -1) == today) actions += 1
-    if (prefs.getInt("game_day", -1) == today) actions += prefs.getInt("game_plays", 0)
-    val fraction = if (store.tick >= 0) (actions / 7f).coerceAtMost(1f) else 0f
-
-    var streakMsg by remember { mutableStateOf("") }
-    val streakDay = ((store.streak - 1) % 7) + 1
-    val claimed = store.streakClaimDay == today
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
+fun CatTile(cat: Cat, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(CardWhite)
+            .clickable { onClick() }
+            .padding(vertical = 14.dp, horizontal = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(Purple),
+                .background(cat.color.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
         ) {
-            Text("E", color = Gold, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Icon(cat.icon, null, tint = cat.color)
         }
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            cat.name,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Ink,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+fun CategoriesScreen(state: AppState, onRefresh: () -> Unit) {
+    var open by remember { mutableStateOf(-1) }
+
+    if (open >= 0) {
+        val cat = categories[open]
         Column {
-            Text("EarnZone", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Purple)
-            Text("Welcome back, Player!")
-        }
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Purple),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Total points", color = Color.White)
-            Text("${store.points}", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Gold)
-            Text("Level ${store.level} (${store.levelName})", color = Color.White)
-            Text("Badge: ${store.currentBadge()}", color = Color.White)
-        }
-    }
-
-    WhiteCard {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Today's progress", fontWeight = FontWeight.Bold)
-            Text("$actions of 7 activities done")
-            Spacer(modifier = Modifier.height(8.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(Color(0xFFE6E0FA))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fraction)
-                        .fillMaxHeight()
-                        .background(Purple)
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Daily Challenge: finish all 3 tasks ($tasksDone/3)", color = LightPurple)
-        }
-    }
-
-    WhiteCard {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Daily Streak: ${store.streak} day(s)", fontWeight = FontWeight.Bold)
-            Text("Today is streak day $streakDay of 7. Bonus: ${store.streakReward()} points")
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(
-                enabled = !claimed,
-                onClick = {
-                    val r = store.claimStreak()
-                    streakMsg = "You got $r points!"
+            Header(cat.name, "श्रेणी") {
+                IconButton(onClick = { open = -1 }) {
+                    Icon(Icons.Filled.Close, contentDescription = "वापस", tint = Color.White)
                 }
-            ) {
-                Text(if (claimed) "Claimed today" else "Claim streak bonus")
             }
-            if (streakMsg.isNotEmpty()) {
-                Text(streakMsg, fontWeight = FontWeight.Bold, color = Purple)
-            }
-        }
-    }
-
-    SpinWheel(prefs, store)
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Button(modifier = Modifier.weight(1f), onClick = { onGo(1) }) { Text("Tasks") }
-        Button(modifier = Modifier.weight(1f), onClick = { onGo(2) }) { Text("Games") }
-        Button(modifier = Modifier.weight(1f), onClick = { onGo(3) }) { Text("Rewards") }
-    }
-}
-
-@Composable
-fun SpinWheel(prefs: SharedPreferences, store: Store) {
-    val today = todayNumber()
-    val prizes = listOf(5, 10, 20, 50, 10, 5)
-    val colors = listOf(
-        Color(0xFF7C4DFF), Color(0xFFFF5A9E), Color(0xFF22D3C5),
-        Color(0xFFFFA000), Color(0xFFEF5350), Color(0xFF43A047)
-    )
-    val sweep = 360f / prizes.size
-    val sweepD = 360.0 / prizes.size
-    val rotation = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    var spinning by remember { mutableStateOf(false) }
-    var spunToday by remember { mutableStateOf(prefs.getInt("spin_day", -1) == today) }
-    var message by remember { mutableStateOf("") }
-
-    WhiteCard {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("Daily Spin", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Purple)
-            Text("▼", fontSize = 28.sp, color = Purple)
-            Box(modifier = Modifier.size(240.dp).rotate(rotation.value)) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    prizes.forEachIndexed { i, _ ->
-                        drawArc(
-                            color = colors[i],
-                            startAngle = -90f + i * sweep,
-                            sweepAngle = sweep,
-                            useCenter = true
-                        )
+            Body {
+                if (open == 0) {
+                    FeedStatus(state, onRefresh)
+                    if (state.items.isEmpty()) {
+                        if (!state.loading) NoNewsState()
+                    } else {
+                        NewsList(state.items, state)
                     }
+                } else {
+                    NoSourceState(cat.icon)
                 }
-                prizes.forEachIndexed { i, prize ->
-                    val a = Math.toRadians(-90.0 + i * sweepD + sweepD / 2)
-                    Text(
-                        "$prize",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .offset(x = (80 * cos(a)).dp, y = (80 * sin(a)).dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                enabled = !spinning && !spunToday,
-                onClick = {
-                    spinning = true
-                    spunToday = true
-                    message = ""
-                    prefs.edit().putInt("spin_day", today).apply()
-                    val idx = Random.nextInt(prizes.size)
-                    val base = rotation.value
-                    val desired = 360f - (idx * sweep + sweep / 2f)
-                    val extra = (((desired - (base % 360f)) % 360f) + 360f) % 360f
-                    val target = base + 1800f + extra
-                    scope.launch {
-                        try {
-                            rotation.animateTo(target, tween(3500, easing = FastOutSlowInEasing))
-                        } finally {
-                            spinning = false
-                            message = "You won ${prizes[idx]} points!"
-                            store.recordSpin()
-                            store.earn(prizes[idx], "Daily Spin")
-                        }
-                    }
-                }
-            ) {
-                Text(
-                    if (spinning) "Spinning..."
-                    else if (spunToday) "Come back tomorrow"
-                    else "SPIN"
-                )
-            }
-            if (message.isNotEmpty()) {
-                Text(message, fontWeight = FontWeight.Bold, color = Purple)
             }
         }
-    }
-}
-
-@Composable
-fun TasksScreen(prefs: SharedPreferences, store: Store) {
-    val context = LocalContext.current
-    val today = todayNumber()
-    val tasks = listOf("Daily check-in" to 10, "Read today's tip" to 20, "Share EarnZone" to 30)
-    val done = remember {
-        mutableStateListOf(
-            prefs.getInt("task_0", -1) == today,
-            prefs.getInt("task_1", -1) == today,
-            prefs.getInt("task_2", -1) == today
-        )
-    }
-    Title("Tasks")
-    tasks.forEachIndexed { index, task ->
-        WhiteCard {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("${task.first} (+${task.second})", modifier = Modifier.weight(1f))
-                    Button(
-                        enabled = !done[index],
-                        onClick = {
-                            done[index] = true
-                            prefs.edit().putInt("task_$index", today).apply()
-                            if (index == 2) {
-                                val send = Intent(Intent.ACTION_SEND)
-                                send.type = "text/plain"
-                                send.putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "Try EarnZone! Play games and win rewards. My code: ${store.userId}"
-                                )
-                                context.startActivity(Intent.createChooser(send, "Share EarnZone"))
-                            }
-                            store.earn(task.second, task.first)
-                        }
+    } else {
+        Column {
+            Header("श्रेणियाँ", "अपनी पसंद चुनिए")
+            Body {
+                categories.chunked(3).forEachIndexed { r, row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(if (done[index]) "Done" else "Claim")
+                        row.forEachIndexed { c, cat ->
+                            CatTile(cat, Modifier.weight(1f)) { open = r * 3 + c }
+                        }
                     }
-                }
-                if (index == 1) {
-                    Text(tips[today % tips.size], modifier = Modifier.padding(top = 8.dp))
                 }
             }
         }
     }
-    Text("Tasks reset every day.")
 }
 
 @Composable
-fun GameScreen(prefs: SharedPreferences, store: Store) {
-    val today = todayNumber()
-    var plays by remember {
-        mutableStateOf(if (prefs.getInt("game_day", -1) == today) prefs.getInt("game_plays", 0) else 0)
-    }
-    var running by remember { mutableStateOf(false) }
-    var timeLeft by remember { mutableStateOf(10) }
-    var taps by remember { mutableStateOf(0) }
-    var message by remember { mutableStateOf("") }
-
-    LaunchedEffect(running) {
-        if (running) {
-            timeLeft = 10
-            try {
-                while (timeLeft > 0) {
-                    delay(1000)
-                    timeLeft -= 1
-                }
-            } finally {
-                running = false
-                val reward = minOf(taps / 10, 20)
-                store.recordTaps(taps)
-                store.earn(reward, "Tap Rush")
-                message = "Time up! Taps: $taps. You got $reward points."
-            }
+fun TrendingScreen(state: AppState, onRefresh: () -> Unit) {
+    var sel by remember { mutableStateOf(0) }
+    Column {
+        Header("ट्रेंडिंग", "ताज़ा अपडेट") {
+            Icon(Icons.Filled.Whatshot, null, modifier = Modifier.size(28.dp), tint = Gold)
         }
-    }
-
-    Title("Games")
-    WhiteCard {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text("Tap Rush", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("Tap as fast as you can for 10 seconds. Every 10 taps = 1 point (max 20).")
-            Text("Plays left today: ${3 - plays}")
-            if (running) {
-                Text("Time left: $timeLeft", fontSize = 18.sp)
-                Text("Taps: $taps", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Purple)
-                Button(
-                    onClick = { taps += 1 },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                ) {
-                    Text("TAP!", fontSize = 32.sp)
-                }
-            } else {
-                Button(
-                    enabled = plays < 3,
-                    onClick = {
-                        taps = 0
-                        message = ""
-                        plays += 1
-                        prefs.edit().putInt("game_day", today).putInt("game_plays", plays).apply()
-                        running = true
-                    }
-                ) {
-                    Text(if (plays < 3) "Start game" else "Come back tomorrow")
-                }
-            }
-            if (message.isNotEmpty()) {
-                Text(message, fontWeight = FontWeight.Bold, color = Purple)
-            }
-        }
-    }
-    Text("Daily Quiz and more games are coming in the next update.")
-}
-
-@Composable
-fun RewardsScreen(store: Store) {
-    var pending by remember { mutableStateOf<RewardItem?>(null) }
-    var message by remember { mutableStateOf("") }
-
-    Title("Rewards Store")
-    WhiteCard {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Your points")
-            Text("${store.points}", fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Purple)
-            Text("Rewards work only inside EarnZone. They cannot be exchanged for money or transferred to others.")
-        }
-    }
-    rewardItems.forEach { item ->
-        val isOwned = store.isOwned(item.id)
-        WhiteCard {
+        Body {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(item.name, fontWeight = FontWeight.Bold)
-                    Text("${item.cost} points", color = Gold)
+                trendFilters.forEachIndexed { i, t ->
+                    PillChip(t, sel == i) { sel = i }
                 }
-                Button(
-                    enabled = !isOwned,
-                    onClick = { pending = item }
-                ) {
-                    Text(if (isOwned) "Owned" else "Buy")
+            }
+            Text(
+                "यह सूची ताज़ा खबरों की है। फ़ीड में लोकप्रियता का डेटा नहीं है, इसलिए कोई रैंकिंग नहीं दिखाई जाती।",
+                fontSize = 12.sp,
+                color = Muted
+            )
+            FeedStatus(state, onRefresh)
+            if (sel <= 1) {
+                if (state.items.isEmpty()) {
+                    if (!state.loading) NoNewsState()
+                } else {
+                    NewsList(state.items, state)
                 }
+            } else {
+                NoSourceState(Icons.Filled.Whatshot)
             }
         }
-    }
-    if (message.isNotEmpty()) {
-        Text(message, fontWeight = FontWeight.Bold, color = Purple)
-    }
-
-    val p = pending
-    if (p != null) {
-        AlertDialog(
-            onDismissRequest = { pending = null },
-            title = { Text("Confirm") },
-            text = { Text("Buy ${p.name} for ${p.cost} points?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    message = store.buy(p)
-                    pending = null
-                }) { Text("Buy") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pending = null }) { Text("Cancel") }
-            }
-        )
     }
 }
 
 @Composable
-fun ProfileScreen(store: Store, onReset: () -> Unit) {
-    val context = LocalContext.current
-    val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    var dialog by remember { mutableStateOf("") }
-
-    Title("Profile")
-    WhiteCard {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(CircleShape)
-                    .background(Purple),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("P", color = Gold, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text("EarnZone Player", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("User ID: ${store.userId}")
-                Text("Level ${store.level} (${store.levelName})")
-                Text("Total points: ${store.points}")
-            }
+fun SavedScreen(state: AppState) {
+    Column {
+        Header("सेव की गई खबरें", "${state.saved.size} खबरें") {
+            Icon(Icons.Filled.Bookmark, null, modifier = Modifier.size(28.dp), tint = Gold)
         }
-    }
-
-    WhiteCard {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Achievements", fontWeight = FontWeight.Bold)
-            store.badges().forEach { b ->
-                Text(if (b.second) "🏅 ${b.first}" else "🔒 ${b.first}")
-            }
-        }
-    }
-
-    WhiteCard {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("My rewards", fontWeight = FontWeight.Bold)
-            val mine = rewardItems.filter { store.isOwned(it.id) }
-            if (mine.isEmpty()) {
-                Text("None yet. Visit the Rewards tab.")
+        Body {
+            if (state.saved.isEmpty()) {
+                EmptyState(
+                    Icons.Filled.BookmarkBorder,
+                    "अभी कुछ सेव नहीं है",
+                    "किसी खबर के बुकमार्क आइकन को दबाइए, वह यहाँ सेव हो जाएगी।"
+                )
             } else {
-                mine.forEach { Text("✔ ${it.name}") }
+                NewsList(state.saved, state)
             }
         }
     }
+}
 
-    WhiteCard {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Invite friends", fontWeight = FontWeight.Bold)
-            Text("Your referral code: ${store.userId}")
-            Text("Referral rewards will be added in a later update.")
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = {
+@Composable
+fun SettingRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(CardWhite)
+            .clickable { onClick() }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Soft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = Purple)
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, color = Ink)
+            Text(subtitle, fontSize = 12.sp, color = Muted)
+        }
+        Icon(Icons.Filled.ChevronRight, null, tint = Muted)
+    }
+}
+
+@Composable
+fun ProfileScreen() {
+    val context = LocalContext.current
+    var dlg by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    Column {
+        Header("EarnZone", "वर्ज़न 1.3")
+        Body {
+            SettingRow(Icons.Filled.Language, "भाषा", "हिंदी") {
+                dlg = Pair(
+                    "भाषा",
+                    "अभी सिर्फ़ हिंदी उपलब्ध है, क्योंकि खबरों का स्रोत हिंदी है। दूसरी भाषाएँ बाद में जोड़ी जाएँगी।"
+                )
+            }
+            SettingRow(Icons.Filled.Notifications, "सूचनाएँ", "अभी उपलब्ध नहीं") {
+                dlg = Pair(
+                    "सूचनाएँ",
+                    "रोज़ की सूचनाएँ अभी उपलब्ध नहीं हैं। बाद के अपडेट में जोड़ी जाएँगी।"
+                )
+            }
+            SettingRow(Icons.Filled.Info, "EarnZone के बारे में", "यह ऐप क्या है") {
+                dlg = Pair(
+                    "EarnZone के बारे में",
+                    "EarnZone एक खबर ऐप है। अभी इसमें पत्र सूचना कार्यालय (PIB) की हिंदी प्रेस विज्ञप्तियों के शीर्षक और मूल लेख के लिंक दिखते हैं। यह भारत सरकार का ऐप नहीं है।"
+                )
+            }
+            SettingRow(Icons.Filled.Lock, "गोपनीयता नीति", "Privacy Policy") {
+                dlg = Pair(
+                    "गोपनीयता नीति",
+                    "ऐप आपकी कोई निजी जानकारी इकट्ठा नहीं करता। सेव की गई खबरें सिर्फ़ आपके फ़ोन में रहती हैं। विज्ञापन Google AdMob दिखाता है, जो अपने नियमों के अनुसार विज्ञापन के लिए डेटा इस्तेमाल कर सकता है। पूरी गोपनीयता नीति सार्वजनिक रिलीज़ से पहले जोड़ी जाएगी।"
+                )
+            }
+            SettingRow(Icons.Filled.Description, "नियम और शर्तें", "Terms & Conditions") {
+                dlg = Pair(
+                    "नियम और शर्तें",
+                    "खबरें PIB की RSS फ़ीड से बिना बदले दिखाई जाती हैं और स्रोत साफ़ लिखा जाता है। पूरा लेख PIB की वेबसाइट पर खुलता है। पूरे नियम सार्वजनिक रिलीज़ से पहले जोड़े जाएँगे।"
+                )
+            }
+            SettingRow(Icons.Filled.Share, "ऐप शेयर करें", "दोस्तों को बताइए") {
                 val send = Intent(Intent.ACTION_SEND)
                 send.type = "text/plain"
-                send.putExtra(
-                    Intent.EXTRA_TEXT,
-                    "Try EarnZone! Play games and win rewards. My code: ${store.userId}"
-                )
-                context.startActivity(Intent.createChooser(send, "Share EarnZone"))
-            }) {
-                Text("Share EarnZone")
+                send.putExtra(Intent.EXTRA_TEXT, "EarnZone: सरकारी खबरें, एक जगह।")
+                context.startActivity(Intent.createChooser(send, "EarnZone शेयर करें"))
             }
+            SettingRow(Icons.Filled.Info, "ऐप वर्ज़न", "1.3") { }
         }
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Button(modifier = Modifier.weight(1f), onClick = { dialog = "privacy" }) { Text("Privacy") }
-        Button(modifier = Modifier.weight(1f), onClick = { dialog = "terms" }) { Text("Terms") }
-        Button(modifier = Modifier.weight(1f), onClick = { dialog = "help" }) { Text("Help") }
-    }
-
-    Text("EarnZone version 1.2")
-
-    if (debuggable) {
-        Button(onClick = onReset) {
-            Text("Reset Testing Data")
-        }
-    }
-
-    Title("Points History")
-    val rows = store.history.lines().filter { it.isNotEmpty() }.take(20)
-    if (rows.isEmpty()) {
-        Text("No activity yet.")
-    }
-    rows.forEach { line ->
-        val p = line.split("|")
-        if (p.size == 4) {
-            val n = p[3].toIntOrNull() ?: 0
-            WhiteCard {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(p[2], fontWeight = FontWeight.Bold)
-                        Text("${p[1]}  |  ${p[0]}", fontSize = 12.sp)
-                    }
-                    Text(
-                        if (n > 0) "+$n" else "$n",
-                        fontWeight = FontWeight.Bold,
-                        color = if (n > 0) Green else Red
-                    )
-                }
-            }
-        }
-    }
-
-    if (dialog.isNotEmpty()) {
-        val dialogTitle = when (dialog) {
-            "privacy" -> "Privacy Policy"
-            "terms" -> "Terms & Conditions"
-            else -> "Help & Support"
-        }
-        val dialogText = when (dialog) {
-            "privacy" -> "EarnZone keeps your game data only on this phone. A full privacy policy will be added before public release."
-            "terms" -> "Points are in-app rewards only. They have no cash value and cannot be transferred. Full terms will be added before public release."
-            else -> "Need help? A support option will be added in a later update."
-        }
+    val d = dlg
+    if (d != null) {
         AlertDialog(
-            onDismissRequest = { dialog = "" },
-            title = { Text(dialogTitle) },
-            text = { Text(dialogText) },
+            onDismissRequest = { dlg = null },
+            title = { Text(d.first) },
+            text = { Text(d.second) },
             confirmButton = {
-                TextButton(onClick = { dialog = "" }) { Text("OK") }
+                TextButton(onClick = { dlg = null }) { Text("ठीक है") }
             }
         )
     }
