@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
+import android.net.Uri
 import android.os.Bundle
+import android.util.Xml
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -29,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +43,10 @@ import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.MobileAds
+import java.io.IOException
+import java.io.StringReader
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,8 +54,12 @@ import java.util.TimeZone
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.xmlpull.v1.XmlPullParser
 
 private val Purple = Color(0xFF5428D8)
 private val LightPurple = Color(0xFF7C4DFF)
@@ -56,6 +68,8 @@ private val CardWhite = Color(0xFFFFFFFF)
 private val Gold = Color(0xFFF5B82E)
 private val Green = Color(0xFF16A34A)
 private val Red = Color(0xFFDC2626)
+
+private const val NEWS_URL = "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=2&Regid=3"
 
 private fun todayNumber(): Int {
     val now = System.currentTimeMillis()
@@ -80,6 +94,68 @@ private val tips = listOf(
     "Spin the wheel once every day.",
     "Keep a 7 day streak to earn a special badge."
 )
+
+data class NewsItem(val title: String, val link: String)
+
+class NewsState {
+    var items by mutableStateOf<List<NewsItem>>(emptyList())
+    var loading by mutableStateOf(false)
+    var error by mutableStateOf("")
+    var updated by mutableStateOf("")
+    var loaded by mutableStateOf(false)
+}
+
+private fun fetchNews(): List<NewsItem> {
+    val conn = URL(NEWS_URL).openConnection() as HttpURLConnection
+    try {
+        conn.connectTimeout = 12000
+        conn.readTimeout = 12000
+        conn.requestMethod = "GET"
+        conn.setRequestProperty("User-Agent", "EarnZone-Android")
+        if (conn.responseCode != 200) throw IOException("HTTP " + conn.responseCode)
+        val text = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            .trimStart('\uFEFF')
+        val parser = Xml.newPullParser()
+        parser.setInput(StringReader(text))
+        val out = ArrayList<NewsItem>()
+        var inItem = false
+        var title = ""
+        var link = ""
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            if (event == XmlPullParser.START_TAG) {
+                val name = parser.name
+                if (name == "item") {
+                    inItem = true
+                    title = ""
+                    link = ""
+                } else if (inItem && name == "title") {
+                    title = parser.nextText().trim()
+                } else if (inItem && name == "link") {
+                    link = parser.nextText().trim()
+                }
+            } else if (event == XmlPullParser.END_TAG && parser.name == "item") {
+                if (title.isNotEmpty() && link.startsWith("https://")) {
+                    out.add(NewsItem(title, link))
+                }
+                inItem = false
+                if (out.size >= 20) break
+            }
+            event = parser.next()
+        }
+        return out
+    } finally {
+        conn.disconnect()
+    }
+}
+
+private fun openLink(context: Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    } catch (e: Exception) {
+        // no browser found, do nothing
+    }
+}
 
 class Store(private val prefs: SharedPreferences) {
     var points by mutableStateOf(prefs.getInt("points", 0))
@@ -254,6 +330,7 @@ fun Title(text: String) {
 fun EarnZoneApp(prefs: SharedPreferences) {
     var resetKey by remember { mutableStateOf(0) }
     val store = remember(resetKey) { Store(prefs) }
+    val news = remember { NewsState() }
     var tab by remember { mutableStateOf(0) }
 
     Scaffold(
@@ -267,6 +344,12 @@ fun EarnZoneApp(prefs: SharedPreferences) {
                         onClick = { tab = 0 },
                         icon = { Icon(Icons.Filled.Home, contentDescription = "Home") },
                         label = { Text("Home") }
+                    )
+                    NavigationBarItem(
+                        selected = tab == 5,
+                        onClick = { tab = 5 },
+                        icon = { Icon(Icons.Filled.Info, contentDescription = "News") },
+                        label = { Text("News") }
                     )
                     NavigationBarItem(
                         selected = tab == 1,
@@ -314,6 +397,7 @@ fun EarnZoneApp(prefs: SharedPreferences) {
                         1 -> TasksScreen(prefs, store)
                         2 -> GameScreen(prefs, store)
                         3 -> RewardsScreen(store)
+                        5 -> NewsScreen(news)
                         else -> ProfileScreen(store) {
                             prefs.edit().clear().apply()
                             resetKey += 1
@@ -323,6 +407,136 @@ fun EarnZoneApp(prefs: SharedPreferences) {
             }
         }
     }
+}
+
+@Composable
+fun NewsScreen(news: NewsState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    fun load() {
+        if (news.loading) return
+        scope.launch {
+            news.loading = true
+            news.error = ""
+            try {
+                val list = withContext(Dispatchers.IO) { fetchNews() }
+                if (list.isEmpty()) {
+                    news.error = "अभी कोई खबर नहीं मिली। थोड़ी देर बाद फिर कोशिश करें।"
+                } else {
+                    news.items = list
+                    news.updated = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
+                    news.loaded = true
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                news.error = "इंटरनेट नहीं है या सर्वर से जुड़ नहीं पाए। कनेक्शन जाँचकर फिर कोशिश करें।"
+            } catch (e: Exception) {
+                news.error = "खबरें इस समय नहीं मिल पाईं। थोड़ी देर बाद फिर कोशिश करें।"
+            } finally {
+                news.loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (!news.loaded) load()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Brush.horizontalGradient(listOf(Purple, LightPurple)))
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text("समाचार", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("PIB से ताज़ा सरकारी खबरें", color = Color.White)
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                if (news.updated.isEmpty()) "अभी ताज़ा नहीं हुआ"
+                else "आख़िरी बार ताज़ा किया: ${news.updated}",
+                color = Gold,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                enabled = !news.loading,
+                onClick = { load() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Gold,
+                    contentColor = Color(0xFF2B1A6B)
+                )
+            ) {
+                Text(if (news.loading) "ताज़ा हो रहा है..." else "ताज़ा करें")
+            }
+        }
+    }
+
+    if (news.loading && news.items.isEmpty()) {
+        WhiteCard {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp), color = Purple)
+                Spacer(modifier = Modifier.width(14.dp))
+                Text("खबरें आ रही हैं...")
+            }
+        }
+    }
+
+    if (news.error.isNotEmpty()) {
+        WhiteCard {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("⚠️ " + news.error, color = Red, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(enabled = !news.loading, onClick = { load() }) {
+                    Text("फिर कोशिश करें (Retry)")
+                }
+            }
+        }
+    }
+
+    news.items.forEachIndexed { i, item ->
+        WhiteCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xFFEDE7FF))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            "स्रोत: PIB",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Purple
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text("#${i + 1}", color = Gold, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(item.title, fontSize = 16.sp, lineHeight = 24.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(onClick = { openLink(context, item.link) }) {
+                    Text("मूल लेख खोलें")
+                }
+            }
+        }
+    }
+
+    Text(
+        "EarnZone भारत सरकार का ऐप नहीं है। खबरें पत्र सूचना कार्यालय (PIB) की RSS फ़ीड से, बिना बदले दिखाई गई हैं। पूरा लेख PIB की वेबसाइट पर खुलेगा।",
+        fontSize = 12.sp,
+        color = Color(0xFF6B6B7B)
+    )
 }
 
 @Composable
